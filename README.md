@@ -1,3 +1,4 @@
+
 # ARES — Automated RedTeaming Evaluation System
 
 > A multi-agent web application security testing prototype for controlled laboratory environments and explicitly authorized assessment targets.
@@ -20,24 +21,16 @@ The **Minor release** (milestones 0–18) represents the complete baseline imple
 
 ARES runs a structured seven-stage assessment pipeline against an authorized target:
 
-```
-Target + Scope definition
-    ↓
-PolicyGateway — strict allowlist enforcement; blocks unauthorized targets before any agent runs
-    ↓
-ReconAgent — discovers endpoints, headers, and technology fingerprints via ToolGateway
-    ↓
-ToolGateway → ToolRegistry → HexStrikeAdapter → HexStrike-AI REST service
-    ↓
-AnalyzerAgent — synthesizes recon data into candidate vulnerabilities using LLM reasoning
-    ↓
-LLMProvider → OmniRouteProvider (OpenAI-compatible local inference proxy)
-    ↓
-ValidationAgent — re-evaluates findings to reduce false positives; assigns confidence levels
-    ↓
-EvidenceManager — persists structured findings, reasoning traces, and raw tool output
-    ↓
-ReportingService — compiles sanitized, XSS-escaped HTML reports from database state
+```mermaid
+flowchart TD
+    A[Target + Scope definition] --> B[PolicyGateway<br/>strict allowlist enforcement — blocks unauthorized targets before any agent runs]
+    B --> C[ReconAgent<br/>discovers endpoints, headers, technology fingerprints via ToolGateway]
+    C --> D[ToolGateway → ToolRegistry → HexStrikeAdapter → HexStrike-AI REST service]
+    D --> E[AnalyzerAgent<br/>synthesizes recon data into candidate vulnerabilities using LLM reasoning]
+    E --> F[LLMProvider → OmniRouteProvider<br/>OpenAI-compatible local inference proxy]
+    F --> G[ValidationAgent<br/>re-evaluates findings to reduce false positives, assigns confidence levels]
+    G --> H[EvidenceManager<br/>persists structured findings, reasoning traces, raw tool output]
+    H --> I[ReportingService<br/>compiles sanitized, XSS-escaped HTML reports from database state]
 ```
 
 Real-time activity is streamed to the dashboard over WebSockets throughout pipeline execution.
@@ -46,63 +39,57 @@ Real-time activity is streamed to the dashboard over WebSockets throughout pipel
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│              ARES Web Console (React 19 + Vite + TypeScript)     │
-│  Dashboard · Assessments · Findings · Evidence · Reports ·       │
-│  Agents · Architecture · Settings · 3D ARES Core Visualization   │
-└───────────────────────┬──────────────────────────────────────────┘
-                        │  REST API + WebSocket
-┌───────────────────────▼──────────────────────────────────────────┐
-│                     FastAPI Application                          │
-│  /api/health · /api/dashboard · /api/assessments · /api/config   │
-└───────────────────────┬──────────────────────────────────────────┘
-                        │
-┌───────────────────────▼──────────────────────────────────────────┐
-│                  AresController (Orchestrator)                    │
-│  Async background task — manages pipeline state transitions      │
-│  and broadcasts timestamped activity logs via WebSocket          │
-└───────────────────────┬──────────────────────────────────────────┘
-                        │
-               ┌────────▼────────┐
-               │  PolicyGateway  │  ← blocks all non-allowlisted targets
-               └────────┬────────┘
-                        │
-          ┌─────────────▼──────────────┐
-          │    Agent Framework          │
-          │  BaseAgent · AgentRegistry  │
-          └─────────────┬──────────────┘
-                        │
-          ┌─────────────▼──────────────┐
-          │         ReconAgent          │
-          └─────────────┬──────────────┘
-                        │
-          ┌─────────────▼──────────────────────────────────┐
-          │  ToolGateway → ToolRegistry → ToolAdapter       │
-          │      HexStrikeAdapter  |  MockAdapter           │
-          └─────────────┬──────────────────────────────────┘
-                        │ ReconResult
-          ┌─────────────▼──────────────┐
-          │        AnalyzerAgent        │
-          └─────────────┬──────────────┘
-                        │
-          ┌─────────────▼──────────────────────────────┐
-          │  LLMProvider → OmniRouteProvider / Mock    │
-          └─────────────┬──────────────────────────────┘
-                        │ AnalysisResult
-          ┌─────────────▼──────────────┐
-          │       ValidationAgent       │
-          └─────────────┬──────────────┘
-                        │
-          ┌─────────────▼──────────────┐
-          │    EvidenceManager          │  ← persists findings + raw traces
-          └─────────────┬──────────────┘
-                        │
-          ┌─────────────▼──────────────┐
-          │      ReportingService       │  ← generates sanitized HTML report
-          └────────────────────────────┘
-                        │
-                   SQLite (data/ares.db)
+```mermaid
+flowchart TD
+    subgraph FE["ARES Web Console — React 19 + Vite + TypeScript"]
+        FE1["Dashboard · Assessments · Findings · Evidence · Reports<br/>Agents · Architecture · Settings · 3D ARES Core Visualization"]
+    end
+
+    FE -- "REST API + WebSocket" --> API
+
+    subgraph API["FastAPI Application"]
+        API1["/api/health · /api/dashboard · /api/assessments · /api/config"]
+    end
+
+    API --> ORCH
+
+    subgraph ORCH["AresController (Orchestrator)"]
+        ORCH1["Async background task — manages pipeline state transitions<br/>and broadcasts timestamped activity logs via WebSocket"]
+    end
+
+    ORCH --> PG["PolicyGateway<br/><i>blocks all non-allowlisted targets</i>"]
+
+    PG --> AF
+
+    subgraph AF["Agent Framework"]
+        AF1["BaseAgent · AgentRegistry"]
+    end
+
+    AF --> RA[ReconAgent]
+
+    RA --> TG
+
+    subgraph TG["Tool Layer"]
+        TG1["ToolGateway → ToolRegistry → ToolAdapter"]
+        TG2["HexStrikeAdapter | MockAdapter"]
+        TG1 --> TG2
+    end
+
+    TG -- ReconResult --> AA[AnalyzerAgent]
+
+    AA --> LLM
+
+    subgraph LLM["LLM Layer"]
+        LLM1["LLMProvider → OmniRouteProvider / Mock"]
+    end
+
+    LLM -- AnalysisResult --> VA[ValidationAgent]
+
+    VA --> EM["EvidenceManager<br/><i>persists findings + raw traces</i>"]
+
+    EM --> RS["ReportingService<br/><i>generates sanitized HTML report</i>"]
+
+    RS --> DB[("SQLite<br/>data/ares.db")]
 ```
 
 ---
